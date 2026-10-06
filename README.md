@@ -1,0 +1,267 @@
+# Static Sitemaps (Omeka S)
+
+Writes XML sitemaps **to disk**, so they are served by the web server with no PHP and no
+database in the request path.
+
+The point is not just speed. A sitemap is the *positive* half of a bot-management
+strategy: once legitimate crawlers have an explicit, complete map of your content, they
+no longer need to walk your faceted discovery interfaces — and you are free to rate-limit
+or block those at the network layer without hiding your collection from search engines.
+
+Requires Omeka S 4.x. No other module is required.
+
+## What it publishes
+
+Per public site, each independently selectable:
+
+- **Pages** — public site pages
+- **Items** — item pages at that site's URL
+- **Item sets** — off by default
+- **Advanced Search pages** — the search landing pages, when the
+  [AdvancedSearch](https://gitlab.com/Daniel-KM/Omeka-S-module-AdvancedSearch) module is
+  installed. The control is hidden when it is not.
+
+Plus one global option: **media**, published as `<image:image>` and `<video:video>`
+extensions inside the entry for the item that presents them — not as separate URLs.
+
+The entry point is always **`sitemap.xml`** at your chosen location, whether it holds a
+sitemap index or a single `<urlset>`. That URL does not change as your collection grows,
+so it is safe to put in `robots.txt` and in a search console once and forget about it.
+
+## Nothing private is ever published
+
+Private sites, pages, items, item sets and media are excluded, and the module reports how
+many it withheld.
+
+This is enforced twice — in every query, and again before each entry is written. That
+redundancy is deliberate. Omeka's own `UpdateSiteItems` job populates the `item_site`
+table with `view-all` privileges granted, so **that table contains private items**, and a
+generation job running under an administrator's account is entitled to read them through
+the API. Privacy here is never allowed to be a side effect of who happens to be running
+the job.
+
+## Setting it up
+
+1. Enable the module, then open **Modules → Static sitemaps**.
+2. Set the **public base URL** (for example `https://example.org`). This is required:
+   generation runs as a background job, which has no HTTP request to detect a URL from,
+   and the module refuses to run rather than publish a sitemap full of `localhost` URLs.
+3. Choose a **layout** (below). The page tells you immediately whether the location is
+   writable.
+4. Tick what each site should contribute. Every checkbox shows the number of URLs it will
+   add, so nothing is enabled blind.
+5. Press **Save and generate now**.
+6. Add the `Sitemap:` line the page shows you to your `robots.txt`.
+
+### Where the files go
+
+| layout | index | children | adds to the document root |
+|---|---|---|---|
+| **Document root** | `/sitemap.xml` | beside it | one file per site and content type |
+| **Document root, children in `/sitemaps/`** | `/sitemap.xml` | `/sitemaps/` | one file and one directory |
+| **Files directory** | `/files/sitemaps/sitemap.xml` | same directory | nothing |
+
+The first two put the index at `/sitemap.xml`, which is where crawlers, auditing tools and
+people look first. Pick between them on clutter: a single-site installation produces two or
+three files and the flat layout is simplest, while a site with many subsites can easily
+produce twenty.
+
+**The files directory is for document roots that are not writable** — commonly, because
+they are owned by root. It has two costs worth knowing about:
+
+- `/sitemap.xml` will not exist, so anything that probes the conventional path finds
+  nothing.
+- The sitemap sits inside the `/files/` path space. If you apply bot-control rules there —
+  which is exactly what that path space exists for on installations using a media proxy —
+  you will be rate-limiting the one file whose job is helping crawlers. Add a carve-out.
+
+### A note on scope and robots.txt
+
+Under the sitemaps.org protocol a sitemap's location bounds the URLs it may contain:
+strictly, a child in `/sitemaps/` covers only URLs beneath `/sitemaps/`. Declaring the
+sitemap in `robots.txt` is the recognised way around this, so **only the flat document-root
+layout is independent of robots.txt** — and even there you want the directive for
+discovery. Add the line whichever layout you choose.
+
+If your document root is a git checkout, ignore the output:
+
+```
+/sitemap.xml
+/sitemap-*.xml
+/sitemaps/
+```
+
+### One file or an index
+
+By default the module writes a sitemap **index** plus one child file per site and content
+type. Tick **Single sitemap file** to get one file instead — tidier for smaller
+installations.
+
+It is a preference, not a guarantee. The URLs-per-file limit still applies, so a
+collection that outgrows it is split into an index automatically and the run report says
+so. **The published URL is `/sitemap.xml` either way** — only the document at that URL
+changes, from a `<urlset>` to a `<sitemapindex>` — so nothing downstream breaks when that
+happens.
+
+## Keeping it fresh
+
+Sitemaps are point-in-time snapshots. Regenerate them on a schedule — nightly is a
+sensible default.
+
+```sh
+15 2 * * * su -s /bin/sh www-data -c "php /path/to/omeka/modules/StaticSitemaps/data/scripts/generate-sitemaps.php --user-id 1"
+```
+
+**Run it as the web server user.** A run as `root` creates files that the next run — from
+the admin button, as `www-data` — cannot replace.
+
+If you use the [EasyAdmin](https://gitlab.com/Daniel-KM/Omeka-S-module-EasyAdmin) module,
+its generic task runner works too:
+
+```sh
+php modules/EasyAdmin/data/scripts/task.php --task 'StaticSitemaps\Job\GenerateSitemaps' --user-id 1
+```
+
+Generation is atomic: files are staged and moved into place, with the index moved last.
+A failed or interrupted run leaves the previous sitemap completely intact.
+
+## Excluded paths
+
+One local path per line; prefix match, case-insensitive. `/s/monsters` excludes
+everything beneath it. Lines starting with `#` are ignored. After each run the module
+reports how many URLs each rule removed, so a typo shows up as a rule that matched
+nothing.
+
+> **This guides crawlers; it does not control them.** Leaving a URL out of a sitemap
+> blocks nothing — the page stays reachable and a crawler that finds it another way will
+> still fetch it. Use `robots.txt` for compliant crawlers and your CDN or firewall for
+> everyone else.
+
+## robots.txt
+
+The module does three things, in increasing order of intrusiveness:
+
+1. **Shows you the exact `Sitemap:` line** for your chosen location, to copy by hand.
+   This always works, because `robots.txt` is frequently version-controlled, read-only,
+   or managed outside Omeka.
+2. **Offers to append it**, if the file is writable. Idempotent; nothing else is touched.
+3. **Audits the file**, answering two questions:
+   - Is the sitemap declared, and does the declaration point at the file we actually
+     write?
+   - **Does anything we publish get blocked?** Advertising a URL that `robots.txt` tells
+     crawlers not to fetch is worse than not listing it: it produces coverage errors and
+     wastes the crawl budget you were trying to reclaim.
+
+The second check earns its keep over time. A rule like
+
+```
+Disallow: /s/*/discover?*
+```
+
+blocks the faceted *query* forms while leaving the bare search landing page crawlable —
+which is exactly the posture this module is designed to support. Drop the `?` one day and
+every search-page entry silently becomes a contradiction. The audit says so.
+
+## Caching at the edge
+
+Sitemaps are static files, so put a **short** TTL on them and let them expire. You do not
+need to purge after every run.
+
+**Worst-case staleness is `regeneration interval + edge TTL`, not the larger of the two.**
+A crawler can fetch the sitemap a minute before the nightly rebuild, and the edge then
+serves that already-day-old copy for the length of the TTL. A 24-hour TTL on a nightly
+rebuild therefore means up to ~48 hours of stale sitemap.
+
+Use ~1 hour instead. Sitemap requests are rare and the files are small, and with
+`ETag`/`Last-Modified` (which both nginx and Apache send for static files) an expired edge
+copy costs a conditional request and a `304`, not a re-transfer.
+
+### nginx
+
+```nginx
+location ~ ^/sitemap(-[A-Za-z0-9_-]+)?\.xml$ {
+    add_header Cache-Control "public, max-age=3600";
+    types { } default_type application/xml;
+    # If you pre-compress the files, nginx will serve the .gz with no CPU cost:
+    # gzip_static on;
+}
+```
+
+### Apache
+
+`mod_expires` is not always available; `mod_headers` usually is:
+
+```apache
+<FilesMatch "^sitemap(-[A-Za-z0-9_-]+)?\.xml$">
+    Header set Cache-Control "public, max-age=3600"
+</FilesMatch>
+```
+
+### Cloudflare
+
+The failure mode here is the opposite of staleness: **`.xml` is not among the file
+extensions Cloudflare caches by default**, so your sitemaps are probably not edge-cached
+at all. Add a Cache Rule matching the sitemap paths if you want them cached. Purge-by-URL
+is available and unmetered if you ever want immediate propagation.
+
+### CloudFront
+
+CloudFront honours the origin's `Cache-Control` when the cache policy is configured to
+(the managed caching-optimised policy does), within the behaviour's minimum and maximum
+TTL. **Invalidations are billed beyond a monthly free allowance**, which is exactly why
+"invalidate everything after every rebuild" is not the recommended pattern — let a short
+TTL do the work.
+
+### Rules beyond caching
+
+Bot management, rate limiting and blocking are yours to configure; this module ships no
+rules and makes no assumptions about your edge. One principle is worth stating, though,
+because it is the whole basis of the strategy:
+
+> **Never block what you advertise.** Every URL in the sitemap should remain fetchable by
+> the crawlers you want. The sitemap is, in effect, your "must stay allowed" list — and
+> the audit above is what checks it against `robots.txt`.
+
+The usual shape is: allow verified search-engine crawlers broadly; rate-limit or challenge
+unverified traffic on faceted-search paths and on media; leave `robots.txt` and the
+sitemap itself always available.
+
+## Media, in more detail
+
+Off by default. Two scope options, both on by default:
+
+- **Primary media only** — one representative file per item.
+- **Originals only** — publish the original file. Switch it off to publish the large
+  derivative instead, which is often what you actually want a crawler to fetch: an
+  original can be a 100 MB archival TIFF.
+
+Media URLs come from Omeka's file store, so whatever your store produces is what gets
+published. If you use
+[AdvancedMedia](https://github.com/agilehumanities) with URL proxying enabled, the module
+detects that its base URI must be pinned — a background job has no request to derive one
+from, and the proxying store would silently fall back to raw bucket URLs — and refuses to
+run until you set it.
+
+This scoping is deliberately coarse for a first release. Per-MIME-type and per-class
+control is the obvious next step.
+
+## Extending it
+
+A source is a small class registered in config:
+
+```php
+'staticsitemaps_url_sources' => [
+    'factories' => [
+        'my-thing' => MyModule\Service\Source\MyThingSourceFactory::class,
+    ],
+],
+```
+
+Implement `StaticSitemaps\Source\UrlSourceInterface`. `entriesFor()` must be a generator
+and must page its queries — the whole pipeline is lazy so that memory stays flat
+regardless of collection size. The configuration matrix is generated from the registry,
+so a new source needs no UI work.
+
+## Licence
+
+GPLv3.

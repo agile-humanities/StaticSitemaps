@@ -1,0 +1,414 @@
+<?php
+/**
+ * The global configuration page.
+ *
+ * Structure follows the order an administrator needs to think in:
+ *   1. Status — what happened last time, and is anything wrong right now
+ *   2. Where — base URL and output location (the two things that block generation)
+ *   3. What — the per-site matrix, with live counts
+ *   4. Media — global, off by default
+ *   5. Exclusions
+ *   6. robots.txt — the copyable line, the optional append, and the audit
+ *
+ * @var \StaticSitemaps\Config\ConfigOptions $options
+ */
+use StaticSitemaps\Config\ConfigOptions;
+use StaticSitemaps\Target\Location;
+
+$escape = $this->plugin('escapeHtml');
+$escapeAttr = $this->plugin('escapeHtmlAttr');
+?>
+<style>
+.ss-panel { border: 1px solid #ddd; border-radius: 3px; padding: 1em 1.2em; margin-bottom: 1.5em; }
+.ss-panel h3 { margin-top: 0; }
+.ss-status { padding: .6em .8em; border-radius: 3px; margin-bottom: .8em; }
+.ss-ok { background: #e6f4ea; border-left: 4px solid #2e7d32; }
+.ss-warn { background: #fff8e1; border-left: 4px solid #f9a825; }
+.ss-err { background: #fdecea; border-left: 4px solid #c62828; }
+.ss-detail { font-size: .9em; color: #555; margin-top: .3em; }
+.ss-matrix { width: 100%; border-collapse: collapse; }
+.ss-matrix th, .ss-matrix td { border-bottom: 1px solid #eee; padding: .45em .5em; text-align: left; vertical-align: top; }
+.ss-matrix th { font-size: .85em; text-transform: uppercase; letter-spacing: .03em; color: #666; }
+.ss-count { color: #777; font-size: .85em; }
+.ss-site-slug { color: #888; font-weight: normal; font-size: .9em; }
+.ss-forced { color: #a06000; font-size: .8em; display: block; }
+.ss-code { font-family: monospace; background: #f5f5f5; padding: .5em .7em; display: block; overflow-x: auto; }
+.ss-note { font-size: .9em; color: #555; }
+</style>
+
+<?php // ── 1. Status ───────────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('Status')) ?></h3>
+
+    <?php if ($lastRun): ?>
+        <div class="ss-status <?= $lastRun['ok'] ? 'ss-ok' : 'ss-err' ?>">
+            <?php if ($lastRun['ok']): ?>
+                <strong><?= $escape(sprintf(
+                    $this->translate('Last generated %s — %s URLs in %s file(s) (%ss).'),
+                    $lastRun['finishedAt'],
+                    number_format($lastRun['totalUrls']),
+                    count($lastRun['files']),
+                    $lastRun['durationSeconds']
+                )) ?></strong>
+                <?php if (!empty($lastRun['indexUrl'])): ?>
+                    <div class="ss-detail">
+                        <?= $escape($this->translate('Sitemap:')) ?>
+                        <a href="<?= $escapeAttr($lastRun['indexUrl']) ?>" target="_blank"><?= $escape($lastRun['indexUrl']) ?></a>
+                        <?= !empty($lastRun['layout']) && $lastRun['layout'] === 'single'
+                            ? $escape($this->translate('(one file, no index)'))
+                            : $escape($this->translate('(index plus child files)')) ?>
+                    </div>
+                <?php endif; ?>
+            <?php else: ?>
+                <strong><?= $escape($this->translate('The last run failed.')) ?></strong>
+                <div class="ss-detail"><?= $escape((string) $lastRun['error']) ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($lastRun['excludedPrivate']) || !empty($lastRun['excludedByRule'])): ?>
+                <div class="ss-detail">
+                    <?php // R5.1 — what was left out is reported as prominently as what went in. ?>
+                    <?= $escape(sprintf(
+                        $this->translate('Excluded: %d private resources, %d by exclusion rules.'),
+                        $lastRun['excludedPrivate'],
+                        array_sum($lastRun['excludedByRule'] ?: [0])
+                    )) ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($lastRun['unusedRules'])): ?>
+                <div class="ss-detail">
+                    <?= $escape($this->translate('Exclusion rules that matched nothing (possible typos):')) ?>
+                    <code><?= $escape(implode(', ', $lastRun['unusedRules'])) ?></code>
+                </div>
+            <?php endif; ?>
+
+            <?php foreach ($lastRun['warnings'] ?? [] as $warning): ?>
+                <div class="ss-detail"><?= $escape($warning) ?></div>
+            <?php endforeach; ?>
+        </div>
+    <?php else: ?>
+        <div class="ss-status ss-warn"><?= $escape($this->translate('No sitemap has been generated yet.')) ?></div>
+    <?php endif; ?>
+
+    <?php if (!$writable['writable']): ?>
+        <div class="ss-status ss-err">
+            <strong><?= $escape($writable['message']) ?></strong>
+            <div class="ss-detail"><?= $escape($writable['detail']) ?></div>
+        </div>
+    <?php else: ?>
+        <div class="ss-status ss-ok">
+            <?= $escape($writable['message']) ?>
+            <div class="ss-detail"><code><?= $escape($writable['detail']) ?></code></div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($served && $served['status'] === 'unverified'): ?>
+        <div class="ss-status ss-warn">
+            <?= $escape($served['message']) ?>
+            <div class="ss-detail"><?= $escape($served['detail']) ?></div>
+        </div>
+    <?php elseif ($served && $served['status'] === 'served'): ?>
+        <div class="ss-status ss-ok"><?= $escape($served['message']) ?></div>
+    <?php endif; ?>
+
+    <?php if (!$proxyCheck['ok']): ?>
+        <div class="ss-status ss-err">
+            <strong><?= $escape($proxyCheck['message']) ?></strong>
+            <div class="ss-detail"><?= $escape($proxyCheck['detail']) ?></div>
+        </div>
+    <?php endif; ?>
+
+    <button type="submit" name="staticsitemaps_generate" value="1" class="button">
+        <?= $escape($this->translate('Save and generate now')) ?>
+    </button>
+    <p class="ss-note"><?= $escape($this->translate(
+        'Generation runs as a background job. Saving alone does not regenerate the sitemap.'
+    )) ?></p>
+</div>
+
+<?php // ── 2. Where ────────────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('Location')) ?></h3>
+
+    <div class="field">
+        <div class="field-meta">
+            <label for="ss-base-url"><?= $escape($this->translate('Public base URL')) ?></label>
+            <div class="field-description"><?= $escape($this->translate(
+                'Required. The public origin of this site, for example https://example.org. '
+                . 'Generation runs as a background job, which has no request to detect this from, '
+                . 'and will refuse to run rather than guess.'
+            )) ?></div>
+        </div>
+        <div class="inputs">
+            <input type="text" id="ss-base-url" name="<?= ConfigOptions::BASE_URL ?>"
+                   value="<?= $escapeAttr($options->baseUrl()) ?>" placeholder="https://example.org">
+        </div>
+    </div>
+
+    <div class="field">
+        <div class="field-meta">
+            <label for="ss-target"><?= $escape($this->translate('Write files to')) ?></label>
+            <div class="field-description"><?= $escape($this->translate(
+                'Where the sitemap files are written. Only the first two put the index at the '
+                . 'conventional /sitemap.xml, which is where crawlers, auditing tools and people '
+                . 'look first.'
+            )) ?></div>
+        </div>
+        <div class="inputs">
+            <select id="ss-target" name="<?= ConfigOptions::TARGET ?>">
+                <?php foreach (Location::labels() as $value => $label): ?>
+                    <option value="<?= $escapeAttr($value) ?>" <?= $options->target() === $value ? 'selected' : '' ?>>
+                        <?= $escape($this->translate($label)) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <div class="ss-note" style="margin-top:.5em">
+                <?php foreach (Location::descriptions() as $value => $description): ?>
+                    <div<?= $options->target() === $value ? '' : ' style="display:none"' ?>
+                         data-ss-target-note="<?= $escapeAttr($value) ?>">
+                        <?= $escape($this->translate($description)) ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php if ($options->target() === Location::TARGET_FILES): ?>
+                <div class="ss-status ss-warn" style="margin-top:.6em">
+                    <?= $escape(sprintf(
+                        $this->translate('Your sitemap is at %s — /sitemap.xml will not exist.'),
+                        $indexUrl ?: '/files/sitemaps/sitemap.xml'
+                    )) ?>
+                    <div class="ss-detail"><?= $escape($this->translate(
+                        'The Sitemap: line in robots.txt is not optional with this layout: it is '
+                        . 'what makes the sitemap discoverable AND what gives it authority over '
+                        . 'URLs outside its own directory.'
+                    )) ?></div>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="field">
+        <div class="field-meta">
+            <label for="ss-single"><?= $escape($this->translate('Single sitemap file')) ?></label>
+            <div class="field-description"><?= $escape($this->translate(
+                'Write one sitemap instead of an index plus child files. Tidier for smaller '
+                . 'installations. The URLs-per-file limit below still applies: if the site outgrows '
+                . 'it, an index and child files are written automatically and the run report says '
+                . 'so. The published URL is the same either way, so nothing breaks when that happens.'
+            )) ?></div>
+        </div>
+        <div class="inputs">
+            <label>
+                <input type="checkbox" id="ss-single" name="<?= ConfigOptions::SINGLE_FILE ?>" value="1"
+                       <?= $options->singleFile() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Prefer a single file')) ?>
+            </label>
+        </div>
+    </div>
+
+    <div class="field">
+        <div class="field-meta">
+            <label for="ss-max"><?= $escape($this->translate('URLs per file')) ?></label>
+            <div class="field-description"><?= $escape($this->translate(
+                'The sitemap protocol allows at most 50,000. A sitemap index is always written, '
+                . 'even for a single file, so the published URL never changes as content grows.'
+            )) ?></div>
+        </div>
+        <div class="inputs">
+            <input type="number" id="ss-max" name="<?= ConfigOptions::MAX_ENTRIES ?>" min="1" max="50000"
+                   value="<?= $escapeAttr((string) $options->maxEntries()) ?>">
+        </div>
+    </div>
+</div>
+
+<?php // ── 3. What ─────────────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('What to include')) ?></h3>
+    <p class="ss-note"><?= $escape($this->translate(
+        'Counts show what each option would contribute right now. Sites may deliberately share '
+        . 'items: a subsite that stands alone is usually meant to list them too, so duplication '
+        . 'across sites is a choice rather than a fault.'
+    )) ?></p>
+
+    <div class="field">
+        <div class="inputs">
+            <label>
+                <input type="checkbox" name="<?= ConfigOptions::ALL_PAGES ?>" value="1"
+                       <?= $options->allPages() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Include all site pages on all sites (overrides the table below)')) ?>
+            </label><br>
+            <label>
+                <input type="checkbox" name="<?= ConfigOptions::ALL_ITEMS ?>" value="1"
+                       <?= $options->allItems() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Include all items on all sites (overrides the table below)')) ?>
+            </label>
+        </div>
+    </div>
+
+    <?php $siteIds = []; ?>
+    <table class="ss-matrix">
+        <thead>
+            <tr>
+                <th><?= $escape($this->translate('Site')) ?></th>
+                <?php foreach ($matrix['sources'] as $sourceId => $source): ?>
+                    <th><?= $escape($this->translate($source->getLabel())) ?></th>
+                <?php endforeach; ?>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($matrix['rows'] as $row): ?>
+            <?php $siteIds[] = $row['site']->id(); ?>
+            <tr>
+                <td>
+                    <strong><?= $escape($row['site']->title()) ?></strong><br>
+                    <span class="ss-site-slug"><?= $escape($row['site']->slug()) ?></span>
+                </td>
+                <?php foreach ($row['cells'] as $sourceId => $cell): ?>
+                    <td>
+                        <label>
+                            <input type="checkbox"
+                                   name="staticsitemaps_site[<?= (int) $row['site']->id() ?>][<?= $escapeAttr($sourceId) ?>]"
+                                   value="1"
+                                   <?= $cell['enabled'] ? 'checked' : '' ?>
+                                   <?= $cell['forced'] ? 'disabled' : '' ?>>
+                            <span class="ss-count"><?= $escape(number_format($cell['count'])) ?></span>
+                        </label>
+                        <?php if ($cell['forced']): ?>
+                            <span class="ss-forced"><?= $escape($this->translate('forced on globally')) ?></span>
+                        <?php endif; ?>
+                    </td>
+                <?php endforeach; ?>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <?php // Sites the form actually rendered. Absent sites keep their stored values
+          // rather than being cleared by their absence from the POST. ?>
+    <input type="hidden" name="staticsitemaps_rendered_sites" value="<?= $escapeAttr(implode(',', $siteIds)) ?>">
+    <p class="ss-note"><?= $escape($this->translate(
+        'Only public sites are listed. Private sites, private pages, private items and private '
+        . 'item sets are never published to a sitemap.'
+    )) ?></p>
+</div>
+
+<?php // ── 4. Media ────────────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('Media')) ?></h3>
+    <p class="ss-note"><?= $escape($this->translate(
+        'Media are published as image and video sitemap extensions inside the entry for the item '
+        . 'that presents them, not as separate URLs. This is a single global setting, not a '
+        . 'per-site one, because it changes how item entries are written rather than which sites '
+        . 'contribute them.'
+    )) ?></p>
+    <div class="field">
+        <div class="inputs">
+            <label>
+                <input type="checkbox" name="<?= ConfigOptions::INCLUDE_MEDIA ?>" value="1"
+                       <?= $options->includeMedia() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Include media')) ?>
+            </label><br>
+            <label>
+                <input type="checkbox" name="<?= ConfigOptions::MEDIA_PRIMARY_ONLY ?>" value="1"
+                       <?= $options->mediaPrimaryOnly() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Primary media only')) ?>
+            </label><br>
+            <label>
+                <input type="checkbox" name="<?= ConfigOptions::MEDIA_ORIGINALS_ONLY ?>" value="1"
+                       <?= $options->mediaOriginalsOnly() ? 'checked' : '' ?>>
+                <?= $escape($this->translate('Original files only')) ?>
+            </label>
+        </div>
+    </div>
+</div>
+
+<?php // ── 5. Exclusions ───────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('Excluded paths')) ?></h3>
+    <div class="field">
+        <div class="field-meta">
+            <div class="field-description">
+                <?= $escape($this->translate(
+                    'One local path per line, for example /s/monsters/item/42. Matching is by prefix '
+                    . 'and is case-insensitive, so /s/monsters excludes everything beneath it. Lines '
+                    . 'beginning with # are ignored. Exclusions override every other setting.'
+                )) ?>
+                <br><br>
+                <strong><?= $escape($this->translate(
+                    'This guides crawlers; it does not control them.'
+                )) ?></strong>
+                <?= $escape($this->translate(
+                    'Leaving a URL out of the sitemap does not block anything. The page stays fully '
+                    . 'reachable, and a crawler that finds it another way will still fetch it. Use '
+                    . 'robots.txt for compliant crawlers, and your CDN or firewall for the rest.'
+                )) ?>
+            </div>
+        </div>
+        <div class="inputs">
+            <textarea name="<?= ConfigOptions::EXCLUSIONS ?>" rows="6"
+                      style="width:100%;font-family:monospace"><?= $escape($options->exclusions()) ?></textarea>
+        </div>
+    </div>
+</div>
+
+<?php // ── 6. robots.txt ───────────────────────────────────────────────────── ?>
+<div class="ss-panel">
+    <h3><?= $escape($this->translate('robots.txt')) ?></h3>
+
+    <?php if ($sitemapDirective): ?>
+        <p class="ss-note"><?= $escape($this->translate(
+            'Add this line to robots.txt so crawlers discover the sitemap:'
+        )) ?></p>
+        <code class="ss-code"><?= $escape($sitemapDirective) ?></code>
+    <?php else: ?>
+        <p class="ss-note"><?= $escape($this->translate('Set a base URL to see the directive to add.')) ?></p>
+    <?php endif; ?>
+
+    <?php if ($robots): ?>
+        <div class="ss-status <?= $robots['status'] === 'ok' ? 'ss-ok' : ($robots['status'] === 'conflict' ? 'ss-err' : 'ss-warn') ?>">
+            <?= $escape($robots['summary']) ?>
+            <?php if (!empty($robots['blocked'])): ?>
+                <div class="ss-detail">
+                    <?= $escape($this->translate('Blocked examples:')) ?>
+                    <?php foreach ($robots['blocked'] as $sourceId => $path): ?>
+                        <code><?= $escape($path) ?></code>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <div class="ss-detail">
+                <code><?= $escape($robotsFile->path()) ?></code>
+                <?= $robotsFile->exists()
+                    ? ($robotsFile->isWritable()
+                        ? $escape($this->translate('(writable)'))
+                        : $escape($this->translate('(not writable — add the line by hand)')))
+                    : $escape($this->translate('(does not exist)')) ?>
+            </div>
+        </div>
+
+        <?php if (!$robots['declared'] && $robotsFile->isWritable() && $sitemapDirective): ?>
+            <label>
+                <input type="checkbox" name="staticsitemaps_append_robots" value="1">
+                <?= $escape($this->translate('Add the Sitemap line to robots.txt when saving')) ?>
+            </label>
+            <p class="ss-note"><?= $escape($this->translate(
+                'robots.txt is often version-controlled or managed outside Omeka. If yours is, '
+                . 'copy the line above instead of writing to the file from here.'
+            )) ?></p>
+        <?php endif; ?>
+    <?php endif; ?>
+</div>
+
+<script>
+// Show the description for the selected target. Purely cosmetic: the server renders
+// every description and only the selected one is visible, so this degrades to the
+// saved state with JS off.
+(function () {
+    var select = document.getElementById('ss-target');
+    if (!select) { return; }
+    select.addEventListener('change', function () {
+        var notes = document.querySelectorAll('[data-ss-target-note]');
+        for (var i = 0; i < notes.length; i++) {
+            notes[i].style.display =
+                notes[i].getAttribute('data-ss-target-note') === select.value ? '' : 'none';
+        }
+    });
+})();
+</script>
