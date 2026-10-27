@@ -4,7 +4,7 @@ All notable changes to Static Sitemaps are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] — unreleased
+## [1.0.0] — 2026-10-27
 
 First public release.
 
@@ -33,3 +33,5 @@ First public release.
 
 - Requires Omeka S 4. No other module is required.
 - Licensed under CeCILL v2.1.
+
+[1.0.0]: https://github.com/agile-humanities/StaticSitemaps/releases/tag/1.0.0

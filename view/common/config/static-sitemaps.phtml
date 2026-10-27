@@ -209,8 +209,8 @@ $escapeAttr = $this->plugin('escapeHtmlAttr');
         <div class="field-meta">
             <label for="ss-max"><?= $escape($this->translate('URLs per file')) ?></label>
             <div class="field-description"><?= $escape($this->translate(
-                'The sitemap protocol allows at most 50,000. A sitemap index is always written, '
-                . 'even for a single file, so the published URL never changes as content grows.'
+                'The sitemap protocol allows at most 50,000. A larger collection is split into several files under '
+                . 'a sitemap index; the published URL (sitemap.xml) stays the same either way.'
             )) ?></div>
         </div>
         <div class="inputs">
