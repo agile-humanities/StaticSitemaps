@@ -16,13 +16,14 @@ First public release.
 - **Per-site content selection:** pages, items, item sets (off by default) and Advanced Search
   pages (when that module is installed), each showing the number of URLs it adds. Media can be
   published as `<image:image>` and `<video:video>` extensions on their item's entry.
-- **Privacy enforced twice:** private sites, pages, items, item sets and media are excluded in
-  every query and again before each entry is written, and the run report counts what was withheld.
+- **Privacy:** private sites, pages, items, item sets and media are never published. Items are
+  checked twice (in the query and again before each entry is written), and the run report
+  counts the private items withheld.
 - **Three layouts:** document root, document root with children in `/sitemaps/`, or Omeka's
   files directory for read-only document roots, with a writability check on the settings page.
 - **Atomic generation** as a background job: files are staged and moved into place, the index
-  last, so a failed run leaves the previous sitemap intact. A command-line script for cron, and
-  support for Easy Admin's task runner.
+  last, so a failed run leaves the previous sitemap intact. A command-line script for cron; the
+  job can also be run through Easy Admin's generic task runner.
 - **Excluded paths:** prefix rules, with a per-rule count of the URLs each one removed.
 - **robots.txt support:** the exact `Sitemap:` line to copy, an optional idempotent append, and
   an audit that reports a missing or wrong declaration and any published URL that robots.txt blocks.

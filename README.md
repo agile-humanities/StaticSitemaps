@@ -1,18 +1,25 @@
 # Static Sitemaps (Omeka S)
 
-Writes XML sitemaps **to disk**, so they are served by the web server with no PHP and no
-database in the request path.
+## Who is this module for?
+This module is for Omeka S site administrators who want to create sitemap XML files to guide search engine crawlers.
 
-The point is not just speed. A sitemap is the *positive* half of a bot-management
-strategy: once legitimate crawlers have an explicit, complete map of your content, they
-no longer need to walk your faceted discovery interfaces — and you are free to rate-limit
-or block those at the network layer without hiding your collection from search engines.
+## Who made this module?
+This module was developed by Bill Kennedy at [Agile Humanities Agency](https://agilehumanities.ca), with support from the [Pitts Theological Library](https://digital.pitts.emory.edu) at Emory University.
+
+## What does this module do?
+This module writes XML sitemaps to static files so they are served by the web server with no PHP and no database request. Web crawlers read sitemaps as part of their content discovery process. It provides a batch process which generates sitemap files. In this way it differs from the Sitemaps module, which generates sitemaps on-the-fly when requested. 
+
+The module allows you to configure what sites and resources are included in your sitemaps.
+
+## Requirements
 
 Requires Omeka S 4.x. No other module is required.
 
-## What it publishes
+## Additional Information
 
-Per public site, each independently selectable:
+### What it publishes
+
+Each public site is given the option to publish the following:
 
 - **Pages** — public site pages
 - **Items** — item pages at that site's URL
@@ -28,7 +35,7 @@ The entry point is always **`sitemap.xml`** at your chosen location, whether it 
 sitemap index or a single `<urlset>`. That URL does not change as your collection grows,
 so it is safe to put in `robots.txt` and in a search console once and forget about it.
 
-## Nothing private is ever published
+### Nothing private is ever published
 
 Private sites, pages, items, item sets and media are excluded, and the module reports how
 many it withheld.
@@ -40,7 +47,7 @@ generation job running under an administrator's account is entitled to read them
 the API. Privacy here is never allowed to be a side effect of who happens to be running
 the job.
 
-## Setting it up
+### Setting it up
 
 1. Enable the module, then open **Modules → Static sitemaps**.
 2. Set the **public base URL** (for example `https://example.org`). This is required:
@@ -53,7 +60,7 @@ the job.
 5. Press **Save and generate now**.
 6. Add the `Sitemap:` line the page shows you to your `robots.txt`.
 
-### Where the files go
+#### Where the files go
 
 | layout | index | children | adds to the document root |
 |---|---|---|---|
@@ -75,7 +82,7 @@ they are owned by root. It has two costs worth knowing about:
   which is exactly what that path space exists for on installations using a media proxy —
   you will be rate-limiting the one file whose job is helping crawlers. Add a carve-out.
 
-### A note on scope and robots.txt
+#### A note on scope and robots.txt
 
 Under the sitemaps.org protocol a sitemap's location bounds the URLs it may contain:
 strictly, a child in `/sitemaps/` covers only URLs beneath `/sitemaps/`. Declaring the
@@ -91,7 +98,7 @@ If your document root is a git checkout, ignore the output:
 /sitemaps/
 ```
 
-### One file or an index
+#### One file or an index
 
 By default the module writes a sitemap **index** plus one child file per site and content
 type. Tick **Single sitemap file** to get one file instead — tidier for smaller
@@ -103,7 +110,7 @@ so. **The published URL is `/sitemap.xml` either way** — only the document at 
 changes, from a `<urlset>` to a `<sitemapindex>` — so nothing downstream breaks when that
 happens.
 
-## Keeping it fresh
+### Keeping it fresh
 
 Sitemaps are point-in-time snapshots. Regenerate them on a schedule — nightly is a
 sensible default.
@@ -125,7 +132,7 @@ php modules/EasyAdmin/data/scripts/task.php --task 'StaticSitemaps\Job\GenerateS
 Generation is atomic: files are staged and moved into place, with the index moved last.
 A failed or interrupted run leaves the previous sitemap completely intact.
 
-## Excluded paths
+### Excluded paths
 
 One local path per line; prefix match, case-insensitive. `/s/monsters` excludes
 everything beneath it. Lines starting with `#` are ignored. After each run the module
@@ -137,7 +144,7 @@ nothing.
 > still fetch it. Use `robots.txt` for compliant crawlers and your CDN or firewall for
 > everyone else.
 
-## robots.txt
+### robots.txt
 
 The module does three things, in increasing order of intrusiveness:
 
@@ -162,7 +169,7 @@ blocks the faceted *query* forms while leaving the bare search landing page craw
 which is exactly the posture this module is designed to support. Drop the `?` one day and
 every search-page entry silently becomes a contradiction. The audit says so.
 
-## Caching at the edge
+### Caching at the edge
 
 Sitemaps are static files, so put a **short** TTL on them and let them expire. You do not
 need to purge after every run.
@@ -176,7 +183,7 @@ Use ~1 hour instead. Sitemap requests are rare and the files are small, and with
 `ETag`/`Last-Modified` (which both nginx and Apache send for static files) an expired edge
 copy costs a conditional request and a `304`, not a re-transfer.
 
-### nginx
+#### nginx
 
 ```nginx
 location ~ ^/sitemap(-[A-Za-z0-9_-]+)?\.xml$ {
@@ -187,7 +194,7 @@ location ~ ^/sitemap(-[A-Za-z0-9_-]+)?\.xml$ {
 }
 ```
 
-### Apache
+#### Apache
 
 `mod_expires` is not always available; `mod_headers` usually is:
 
@@ -197,14 +204,14 @@ location ~ ^/sitemap(-[A-Za-z0-9_-]+)?\.xml$ {
 </FilesMatch>
 ```
 
-### Cloudflare
+#### Cloudflare
 
 The failure mode here is the opposite of staleness: **`.xml` is not among the file
 extensions Cloudflare caches by default**, so your sitemaps are probably not edge-cached
 at all. Add a Cache Rule matching the sitemap paths if you want them cached. Purge-by-URL
 is available and unmetered if you ever want immediate propagation.
 
-### CloudFront
+#### CloudFront
 
 CloudFront honours the origin's `Cache-Control` when the cache policy is configured to
 (the managed caching-optimised policy does), within the behaviour's minimum and maximum
@@ -212,7 +219,7 @@ TTL. **Invalidations are billed beyond a monthly free allowance**, which is exac
 "invalidate everything after every rebuild" is not the recommended pattern — let a short
 TTL do the work.
 
-### Rules beyond caching
+#### Rules beyond caching
 
 Bot management, rate limiting and blocking are yours to configure; this module ships no
 rules and makes no assumptions about your edge. One principle is worth stating, though,
@@ -226,7 +233,7 @@ The usual shape is: allow verified search-engine crawlers broadly; rate-limit or
 unverified traffic on faceted-search paths and on media; leave `robots.txt` and the
 sitemap itself always available.
 
-## Media, in more detail
+### Media, in more detail
 
 Off by default. Two scope options, both on by default:
 
@@ -245,7 +252,7 @@ run until you set it.
 This scoping is deliberately coarse for a first release. Per-MIME-type and per-class
 control is the obvious next step.
 
-## Extending it
+### Extending it
 
 A source is a small class registered in config:
 
