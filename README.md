@@ -264,4 +264,4 @@ so a new source needs no UI work.
 
 ## Licence
 
-GPLv3.
+[CeCILL v2.1](LICENSE.txt), a GPL-compatible free software licence (see its article 5.3.4).
